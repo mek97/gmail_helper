@@ -11,6 +11,7 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ['https://mail.google.com/']
 
@@ -45,7 +46,7 @@ class GmailAPIHelper:
     def get_message_ids(self, query):
         messageIds = []
         results = self.service.users().messages().list(
-            userId='me', q=query, maxResults=5).execute()
+            userId='me', q=query, maxResults=500).execute()
         messages = results.get('messages', [])
 
         for message_id in messages:
@@ -59,7 +60,7 @@ class GmailAPIHelper:
         attach_data = []
 
         for message_id in messageIds:
-            message = self.service.users().messages().get(userId='me', id=message_id).execute()
+            message = self.service.users().messages().get(userId='me', id=message_id, format="full").execute()
             subject = ""
             date_val = ""
             for index, header in enumerate(message['payload']['headers']):
@@ -74,19 +75,23 @@ class GmailAPIHelper:
                 "data_val": date_val,
                 "subject": subject,
             }, **{x["name"]: x["value"] for x in message['payload']['headers']}})
-
-            if attach_type is not None:
-                parts = message['payload']['parts']
-                for part in parts:
-                    if part["mimeType"] == attach_type:
-                        att_id = part['body']['attachmentId']
-                        attach_data.append({
-                            "messageId": message_id,
-                            "attachmentId": att_id,
-                            "data_val": date_val,
-                            "subject": subject,
-                            "file_name": part["filename"]
-                        })
+            parts = message['payload']['parts']
+            for part in parts:
+                if part["mimeType"] in ['text/plain']:
+                    data = part['body']['data']
+                    try:
+                        base64_bytes = data.encode('ascii')
+                        message_bytes = base64.b64decode(base64_bytes + b'==')
+                        message = message_bytes.decode('ascii')
+                    except:
+                        message = ""
+                    attach_data.append({
+                        "messageId": message_id,
+                        "data": message,
+                        "raw": data,
+                        "data_val": date_val,
+                        "subject": subject
+                    })
 
         message_df = pd.DataFrame(message_data)
         attach_df = pd.DataFrame(attach_data)
@@ -128,5 +133,7 @@ class GmailAPIHelper:
 
 if __name__ == '__main__':
     gmail_api_helper = GmailAPIHelper()
-    a, b = gmail_api_helper.get_messages_df("label:analytics", "text/csv")
-    gmail_api_helper.download_attachments(b)
+    a, b = gmail_api_helper.get_messages_df("query", None)
+    a.to_csv("x_a.csv")
+    b.to_csv("x_b.csv")
+    # gmail_api_helper.download_attachments(b)
